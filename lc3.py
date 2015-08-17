@@ -146,6 +146,7 @@ class LC3(object):
 
     def __init__(self):
         # Functions for interpreting instructions:
+        self.char_buffer = []
         self.apply = {
             0b0000: self.BR,
             0b0001: self.ADD,
@@ -189,7 +190,6 @@ class LC3(object):
     #### memory, register, nzp, and pc can be implemented in different
     #### means.
     def initialize(self):
-        self.pdb = False
         self.filename = ""
         self.debug = False
         self.meta = False
@@ -661,6 +661,8 @@ class LC3(object):
     def dump_registers(self):
         print()
         print("=" * 50)
+        print("Registers:")
+        print("=" * 50)
         print("PC:", lc_hex(self.get_pc()))
         for r,v in zip("NZP", self.get_nzp()):
             print("%s: %s" % (r,v), end=" ")
@@ -671,17 +673,19 @@ class LC3(object):
             if count % 4 == 0:
                 print()
             count += 1
-        print("-" * 20)
     
     def dump(self, orig_start=None, orig_stop=None):
         if orig_start is None:
-            start = self.get_pc()
+            start = self.orig
         else:
             start = orig_start
         if orig_stop is None:
             stop = max(self.source.keys()) + 1
         else:
             stop = orig_stop
+        print("=" * 50)
+        print("Memory, disassembled:")
+        print("=" * 50)
         for memory in range(start, stop):
             instruction = self.get_memory(memory)
             instr = (instruction >> 12) & 0xF
@@ -790,8 +794,6 @@ class LC3(object):
         self.set_memory(memory, self.get_register(src))
         ## Hook up, side effect display:
         if memory == 0xFE06: ## OS_DDR
-            if self.pdb:
-                import pdb; pdb.set_trace()
             try:
                 self.Info(chr(self.get_register(src)))
             except:
@@ -821,8 +823,10 @@ class LC3(object):
         return "LEA R%d, %s" % (dst, lc_hex(self.lookup(plus(sext(pc_offset9,9), location) + 1)))
 
     def getc(self):
-        data = input("Enter a character: ")
+        data = input("GETC: ")
         if data:
+            if len(data) > 1:
+                self.char_buffer += [ord(char) for char in data[1:]]
             return ord(data[0])
         else:
             return 10 # Carriage Return
@@ -832,7 +836,10 @@ class LC3(object):
         self.set_register(7, self.get_pc())
         self.set_pc(self.get_memory(vector))
         if vector == 0x20:
-            self.set_memory(0xFE02, self.getc())
+            if self.char_buffer:
+                self.set_memory(0xFE02, self.char_buffer.pop(0))
+            else:
+                self.set_memory(0xFE02, self.getc())
         elif vector == 0x21:
             pass
         elif vector == 0x22: # PUTS
@@ -897,7 +904,12 @@ class LC3(object):
             instr += "p"
         val = self.lookup(plus(sext(pc_offset9,9), location) + 1)
         if pc_offset9 < 256:
-            return "%s %s (or %s)" % (instr, lc_hex(val), repr(chr(pc_offset9)))
+            if pc_offset9 < 32: # integers
+                return "%s %s (or %s)" % (instr, lc_hex(val), pc_offset9)
+            elif pc_offset9 <= 127: # int, or ASCII
+                return "%s %s (or %s, %s)" % (instr, lc_hex(val), pc_offset9, repr(chr(pc_offset9)))
+            else: # integer
+                return "%s %s (or %s)" % (instr, lc_hex(val), pc_offset9)
         else:
             return "%s %s" % (instr, lc_hex(val))
 
@@ -1298,6 +1310,8 @@ class LC3(object):
         ok = False
         try:
             self.assemble(text)
+            self.dump()
+            self.dump_registers()
             ok = True
         except Exception as exc:
             if self.debug:
