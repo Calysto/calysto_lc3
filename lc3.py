@@ -464,8 +464,6 @@ class LC3(object):
         found = ''
         alltogether = "".join(words)
         alltogether1 = "".join(words[1:])
-        if self.debug:
-            import pdb; pdb.set_trace()
         if not words or words[0].startswith(';'):
             return
         elif is_bin(alltogether):
@@ -759,7 +757,7 @@ class LC3(object):
         if orig_stop is None:
             stop = max(self.source.keys()) + 1
         else:
-            stop = orig_stop
+            stop = orig_stop + 1
 
         if stop <= start:
             stop = start + 10
