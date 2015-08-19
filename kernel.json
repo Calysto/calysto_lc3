@@ -1,5 +1,7 @@
 {
  "display_name": "Calysto LC3",
- "argv": ["python3", "/home/dblank/.ipython/kernels/calysto_lc3/kernel.py",  
-          "{connection_file}"]
+ "argv": ["python3", 
+	  "/home/dblank/.ipython/kernels/calysto_lc3/kernel.py",  
+          "-f", "{connection_file}"],
+ "language": "asm"
 }

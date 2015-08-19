@@ -9,7 +9,7 @@ class CalystoLC3(MetaKernel):
     implementation_version = '1.0'
     language = 'Calysto LC3'
     language_version = '0.1'
-    banner = "Calysto Little Computer 3 - assembling language of the LC3"
+    banner = "Calysto Little Computer 3 - assembly language of the LC3"
     language_info = {
         'name': 'asm',
         'mimetype': 'text/x-asm',
@@ -18,13 +18,33 @@ class CalystoLC3(MetaKernel):
 
     def __init__(self, *args, **kwargs):
         super(CalystoLC3, self).__init__(*args, **kwargs)
-        self.lc3 = LC3()
+        self.lc3 = LC3(self)
 
     def get_usage(self):
-        return "This is the Calysto LC3 kernel."
+        return """This is the Calysto LC3 Jupyter kernel.
+
+Interactive Magic Directives: 
+
+ %cont                              - continue running
+ %d                                 - toggle debug
+ %dis [STARTHEX [STOPHEX]]          - dump memory as program
+ %exe                               - execute the program
+ %mem HEXLOCATION HEXVALUE          - set memory
+ %pc HEXVALUE                       - set PC
+ %raw [STARTHEX [STOPHEX]]          - list memory in hex
+ %reg REG HEXVALUE                  - set register REG to HEXVALUE
+ %regs                              - show registers
+ %reset                             - reset LC3 to start state
+ %step                              - execute the next instruction, increment PC
+
+HEX values begin with an 'x' and are composed of 4 0-F digits or letters.
+"""
 
     def do_execute_direct(self, code):
-        self.lc3.execute(code.rstrip())
+        try:
+            self.lc3.execute(code.rstrip())
+        except Exception as exc:
+            self.Error(str(exc))
 
     def do_is_complete(self, code):
         if code:
