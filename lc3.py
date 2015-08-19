@@ -143,6 +143,24 @@ class LC3(object):
             0b1110: 5  + 1, # LEA
             0b1111: 7  + 2, # TRAP
         }
+    mnemonic = {
+        0b0000: "BR",
+        0b0001: "ADD",
+        0b0010: "LD",
+        0b0011: "ST",
+        0b0100: "JSR",
+        0b0101: "AND",
+        0b0110: "LDR",
+        0b0111: "STR",
+        0b1000: "RTI",
+        0b1001: "NOT",
+        0b1010: "LDI",
+        0b1011: "STI",
+        0b1100: "JMP",
+        0b1101: "SHIFT",
+        0b1110: "LEA",
+        0b1111: "TRAP",
+    }
 
     def __init__(self):
         # Functions for interpreting instructions:
@@ -417,7 +435,14 @@ class LC3(object):
         """
         self.source[self.get_pc()] = line_count
         found = ''
+        alltogether = "".join(words)
         if not words or words[0].startswith(';'):
+            return
+        elif (alltogether and 
+              alltogether.count("0") + alltogether.count("1") == len(alltogether)): # composed of 0s and 1s?
+            inst = eval("0b" + alltogether)
+            self.set_instruction(self.get_pc(), inst, line_count)
+            self.increment_pc()
             return
         elif '.FILL' in words:
             word = words[words.index('.FILL') + 1]
