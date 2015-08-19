@@ -1240,6 +1240,7 @@ class LC3(object):
                 print("      %set reg 1 xFFFF")
                 print("      %set memory x300A x1")
                 print("      %set warn 0")
+                self.dump_registers()
             return True
         elif words[0] == "%get":
             try:
@@ -1278,8 +1279,9 @@ class LC3(object):
                 ## show trace
             self.step()
             self.debug = orig_debug
+            self.dump_registers()
             return True
-        elif words[0] == "%run":
+        elif words[0] == "%exe":
             ok = False
             try:
                 # if .orig in code, then run, otherwise just assemble:
