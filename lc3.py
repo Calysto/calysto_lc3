@@ -27,6 +27,21 @@ def lc_bin(v):
     """ Truncate any extra bytes """
     return v & 0xFFFF
 
+def is_composed_of(s, letters):
+    return len(s) > 0 and sum([s.count(letter) for letter in letters]) == len(s)
+
+def is_hex(s):
+    if len(s) > 1:
+        if s[0] == "x":
+            if s[1] == "-":
+                return is_composed_of(s[2:].upper(), "0123456789ABCDEF")
+            else:
+                return is_composed_of(s[1:].upper(), "0123456789ABCDEF")
+    return False
+
+def is_bin(s):
+    return is_composed_of(s, "01")
+
 def sext(binary, bits):
     """ 
     Sign-extend the binary number, check the most significant
@@ -207,16 +222,16 @@ class LC3(object):
     #### The following allow different hardware implementations:
     #### memory, register, nzp, and pc can be implemented in different
     #### means.
-    def initialize(self):
+    def initialize(self, runit=False):
         self.filename = ""
         self.debug = False
         self.meta = False
         self.warn = True
         self.noop_error = True
-        self.orig = 0x3000
         self.source = {}
         self.cycle = 0
-        self.pc = HEX(0x3000)
+        self.orig = 0x3000
+        self.set_pc(HEX(0x3000))
         self.cont = False
         self.instruction_count = 0
         self.immediate_mask = {}
@@ -227,29 +242,41 @@ class LC3(object):
         self.labels = {}
         self.label_location = {}
         self.register = {0:0, 1:0, 2:0, 3:0, 4:0, 5:0, 6:0, 7:0}
-        self.reset_memory() # assembles OS
+        self.reset_memory(runit=runit) # assembles OS
         self.reset_registers()
-        self.set_pc(0x3000)
 
-    def reset_memory(self, filename=None):
+    def reset_memory(self, filename=None, runit=False, reset_pc=False):
         if filename is None:
-            filename = os.path.join(os.path.dirname(__file__), "lc3os.asm")
+            try:
+                filename = os.path.join(os.path.dirname(__file__), "lc3os.asm")
+            except:
+                filename = os.path.join(os.path.dirname("."), "lc3os.asm")
         text = "".join(open(filename).readlines())
         debug = self.debug 
         self.debug = self.meta
         self.memory = array('i', [0] * (1 << 16))
         # We reset these items here and below because of 
         # bug (related to hack in interpreter?)
+        if reset_pc:
+            temp_pc = self.get_pc()
+            temp_orig = self.orig
         self.source = {}
         self.labels = {}
         self.label_location = {}
         self.assemble(text)
         self.debug = debug
-        #self.set_pc(0x0200)
-        #self.run()
+        if runit:
+            self.set_pc(0x0200)
+            self.run()
         self.source = {}
         self.labels = {}
         self.label_location = {}
+        if reset_pc:
+            self.set_pc(temp_pc)
+            self.orig = temp_orig
+        else:
+            self.set_pc(0x3000)
+            self.orig = HEX(0x3000)
 
     def reset_registers(self):
         debug = self.debug
@@ -259,46 +286,46 @@ class LC3(object):
         self.set_nzp(0)
         self.debug = debug
         
-    def _set_nzp(self, value):
+    def set_nzp(self, value):
         self.nzp = (int(value & (1 << 15) > 0), 
                     int(value == 0), 
                     int((value & (1 << 15) == 0) and value != 0))
-
-    def set_nzp(self, value):
-        self._set_nzp(value)
         if self.debug:
-            print("    NZP <=", self.get_nzp())
+            self.Print("    NZP <=", self.get_nzp())
 
     def get_nzp(self, register=None):
         if register is not None:
-            return self.nzp[register]
+            value = self.nzp[register]
         else:
-            return self.nzp
+            value = self.nzp
+        if self.meta:
+            if register:
+                self.Print("    %s => %s" % ("NZP"[register], lc_hex(value)))
+            else:
+                self.Print("    NZP => %s" % (lc_hex(value), ))
+        return value
 
     def get_pc(self):
         return self.pc
 
     def set_pc(self, value):
-        self._set_pc(value)
-        if self.debug:
-            print("    PC <= %s" % lc_hex(value))
-
-    def _set_pc(self, value):
         self.pc = HEX(value)
+        if self.debug:
+            self.Print("    PC <= %s" % lc_hex(value))
 
     def increment_pc(self, value=1):
         self.set_pc(self.get_pc() + value)
 
     def get_register(self, position):
-        return self.register[position]
-
-    def _set_register(self, position, value):
-        self.register[position] = value
+        value = self.register[position]
+        if self.meta:
+            self.Print("    R%d => %s" % (position, lc_hex(value)))
+        return value
 
     def set_register(self, position, value):
-        self._set_register(position, value)
+        self.register[position] = value
         if self.debug:
-            print("    R%d <= %s" % (position, lc_hex(value)))
+            self.Print("    R%d <= %s" % (position, lc_hex(value)))
 
     def set_instruction(self, location, n, line):
         """
@@ -308,15 +335,15 @@ class LC3(object):
         self.set_memory(location, lc_bin(n))
 
     def get_memory(self, location):
-        return self.memory[location]
-
-    def _set_memory(self, location, value):
-        self.memory[location] = value
+        value = self.memory[location]
+        if self.meta:
+            self.Print("    memory[%s] => %s" % (lc_hex(location), lc_hex(value)))
+        return value
 
     def set_memory(self, location, value):
-        self._set_memory(location, value)
+        self.memory[location] = value
         if self.debug:
-            print("    memory[%s] <= %s" % (lc_hex(location), lc_hex(value)))
+            self.Print("    memory[%s] <= %s" % (lc_hex(location), lc_hex(value)))
 
     def memory_tofile(self, start, stop, f):
         self.memory[start:stop].tofile(f)
@@ -342,7 +369,7 @@ class LC3(object):
         return self.registers[s.rstrip(', ')] << self.reg_pos[n]
 
     def undefined(self, data):
-        raise ValueError('Undefined Instruction')
+        raise ValueError('Undefined Instruction: %s' % data)
 
     def valid_label(self, word):
         if word[0] == 'x' and word[1].isdigit():
@@ -436,11 +463,39 @@ class LC3(object):
         self.source[self.get_pc()] = line_count
         found = ''
         alltogether = "".join(words)
+        alltogether1 = "".join(words[1:])
+        if self.debug:
+            import pdb; pdb.set_trace()
         if not words or words[0].startswith(';'):
             return
-        elif (alltogether and 
-              alltogether.count("0") + alltogether.count("1") == len(alltogether)): # composed of 0s and 1s?
+        elif is_bin(alltogether):
+            ## Allow:
+            ##  0001 000 000 0 00000
+            ##  0001000000000000
             inst = eval("0b" + alltogether)
+            self.set_instruction(self.get_pc(), inst, line_count)
+            self.increment_pc()
+            return
+        elif len(words) > 1 and is_bin(alltogether1) and not self.is_keyword(words[0]):
+            ## Allow:
+            ##  LABEL 0001000000000000
+            self.labels[self.make_label(words[0])] = self.get_pc()
+            inst = eval("0b" + alltogether1)
+            self.set_instruction(self.get_pc(), inst, line_count)
+            self.increment_pc()
+            return
+        elif len(words) == 1 and is_hex(words[0]): 
+            ## Allow:
+            ##  x10F4
+            inst = eval("0" + words[0])
+            self.set_instruction(self.get_pc(), inst, line_count)
+            self.increment_pc()
+            return
+        elif len(words) == 2 and is_hex(words[1]) and not self.is_keyword(words[0]):
+            ## Allow:
+            ##  LABEL x2045
+            self.labels[self.make_label(words[0])] = self.get_pc()
+            inst = eval("0" + words[1])
             self.set_instruction(self.get_pc(), inst, line_count)
             self.increment_pc()
             return
@@ -591,11 +646,12 @@ class LC3(object):
             self.set_instruction(self.get_pc(), instruction, line_count)
             self.increment_pc()
     
+    def is_keyword(self, s):
+        return s in self.instruction_info.keys() or s.startswith(".")
+
     def assemble(self, code):
         # processing the lines
-        debug = self.debug
-        self.debug = self.meta
-        line_count = 1
+        line_count = 0
         # first pass:
         for line in code.splitlines():
             # remove comments
@@ -610,10 +666,9 @@ class LC3(object):
                 break
             self.process_instruction(words, line_count, line)
             line_count += 1
-         # second pass:
+        # second pass:
         for label, value in self.label_location.items():
             if label not in self.labels:
-                self.debug = debug
                 raise ValueError('Bad label: "%s"' % label)
             else:
                 for ref, mask, bits in value:
@@ -623,7 +678,6 @@ class LC3(object):
                     if self.get_memory(ref) == 0: # not instruction -> absolute
                         self.set_memory(ref, self.labels[label])
                     elif not self.in_range(current, bits) :
-                        self.debug = debug
                         raise ValueError(("Not an instruction: %s, mask %s, offset %s,  %s, ref %s" %
                                 (label,
                                 bin(mask),
@@ -636,17 +690,15 @@ class LC3(object):
                         self.set_memory(ref, 
                                         plus(self.get_memory(ref), 
                                              lc_bin(mask & current)))
-        self.set_pc(self.orig)
-        self.debug = debug
 
     def handleDebug(self, lineno):
         pass
 
-    def Info(self, string):
-        print(string, end="")
+    def Print(self, *args, end="\n"):
+        print(*args, end=end)
 
     def Error(self, string):
-        print(string, end="")
+        sys.stderr.write(string)
 
     def run(self, reset=True):
         if reset:
@@ -656,9 +708,9 @@ class LC3(object):
             self.set_memory(0xFE00, 0xFFFF) ## OS_KBSR Keyboard Ready
         self.cont = True
         if self.debug:
-            print("Tracing Script! PC* is incremented Program Counter")
-            print("(Instr/Cycles Count) INSTR [source line] (PC*: xHEX)")
-            print("----------------------------------------------------")
+            self.Print("Tracing Script! PC* is incremented Program Counter")
+            self.Print("(Instr/Cycles Count) INSTR [source line] (PC*: xHEX)")
+            self.Print("----------------------------------------------------")
         while self.cont:
             self.step()
 
@@ -673,7 +725,7 @@ class LC3(object):
         if self.debug:
             line = self.source.get(pc, -1)
             line_str = (" [%s]" % line) if (line != -1) else ""
-            print("(%s/%s) %s%s (%s*: %s)" % (
+            self.Print("(%s/%s) %s%s (%s*: %s)" % (
                 self.instruction_count, 
                 self.cycle, 
                 self.format[instr](instruction, pc), 
@@ -684,22 +736,22 @@ class LC3(object):
         self.apply[instr](instruction)
 
     def dump_registers(self):
-        print()
-        print("=" * 50)
-        print("Registers:")
-        print("=" * 50)
-        print("PC:", lc_hex(self.get_pc()))
+        self.Print()
+        self.Print("=" * 50)
+        self.Print("Registers:")
+        self.Print("=" * 50)
+        self.Print("PC:", lc_hex(self.get_pc()))
         for r,v in zip("NZP", self.get_nzp()):
-            print("%s: %s" % (r,v), end=" ")
-        print()
+            self.Print("%s: %s" % (r,v), end=" ")
+        self.Print()
         count = 1
         for key in range(8):
-            print("R%d: %s" % (key, lc_hex(self.get_register(key))), end=" ")
+            self.Print("R%d: %s" % (key, lc_hex(self.get_register(key))), end=" ")
             if count % 4 == 0:
-                print()
+                self.Print()
             count += 1
     
-    def dump(self, orig_start=None, orig_stop=None):
+    def dump(self, orig_start=None, orig_stop=None, raw=False):
         if orig_start is None:
             start = self.orig
         else:
@@ -708,23 +760,30 @@ class LC3(object):
             stop = max(self.source.keys()) + 1
         else:
             stop = orig_stop
-        print("=" * 50)
-        print("Memory, disassembled:")
-        print("=" * 50)
-        for memory in range(start, stop):
-            instruction = self.get_memory(memory)
-            instr = (instruction >> 12) & 0xF
-            label = self.lookup(memory, "")
-            if label:
-                label = label + ":"
-            instr_str = self.source.get(memory, "")
-            if instr_str:
-                print("%-10s %s: %s  %-41s [line: %s]" % (
-                    label, lc_hex(memory), lc_hex(instruction), 
-                    self.format[instr](instruction, memory), instr_str))
-            else:
-                if orig_stop is None:
-                    break
+
+        if stop <= start:
+            stop = start + 10
+        if raw:
+            self.Print("=" * 50)
+            self.Print("Memory:")
+            self.Print("=" * 50)
+            for x in range(start, stop):
+                self.Print("%-10s %s: %s" % ("", lc_hex(x), lc_hex(self.get_memory(x))))
+        else:
+            self.Print("=" * 50)
+            self.Print("Memory, disassembled:")
+            self.Print("=" * 50)
+            for memory in range(start, stop):
+                instruction = self.get_memory(memory)
+                instr = (instruction >> 12) & 0xF
+                label = self.lookup(memory, "")
+                if label:
+                    label = label + ":"
+                instr_str = self.source.get(memory, "")
+                if instr_str:
+                    self.Print("%-10s %s: %s  %-41s [line: %s]" % (
+                        label, lc_hex(memory), lc_hex(instruction), 
+                        self.format[instr](instruction, memory), instr_str))
                 else:
                     if instruction == 0:
                         ascii = "\\0"
@@ -733,21 +792,21 @@ class LC3(object):
                             ascii = repr(chr(instruction))
                         except:
                             ascii = instruction
-                    print("%-10s %s: %s - %s" % (
+                    self.Print("%-10s %s: %s - %s" % (
                         label, lc_hex(memory), lc_hex(instruction), ascii))
 
     def disassemble(self):
         start = min(self.source.keys())
         stop = max(self.source.keys()) + 1
-        print("           .ORIG %s " % lc_hex(start))
+        self.Print(".ORIG %s " % lc_hex(start))
         for memory in range(start, stop):
             instruction = self.get_memory(memory)
             instr = (instruction >> 12) & 0xF
             label = self.lookup(memory, "")
             if label:
                 label = label + ":"
-            print("%-10s %s" % (label, self.format[instr](instruction, memory)))
-        print("           .END")
+            self.Print("%-10s %s" % (label, self.format[instr](instruction, memory)))
+        self.Print(".END")
 
     def lookup(self, location, default=None):
         for label in self.labels:
@@ -802,8 +861,8 @@ class LC3(object):
         memory1 = self.get_memory(location)
         memory2 = self.get_memory(memory1)
         if self.debug:
-            print("  Reading memory[x%04x] (x%04x) =>" % (location, memory1))
-            print("  Reading memory[x%04x] (x%04x) =>" % (memory1, memory2))
+            self.Print("  Reading memory[x%04x] (x%04x) =>" % (location, memory1))
+            self.Print("  Reading memory[x%04x] (x%04x) =>" % (memory1, memory2))
         self.set_register(dst, memory2)
         self.set_nzp(self.get_register(dst))        
 
@@ -820,9 +879,9 @@ class LC3(object):
         ## Hook up, side effect display:
         if memory == 0xFE06: ## OS_DDR
             try:
-                self.Info(chr(self.get_register(src)))
+                self.Print(chr(self.get_register(src)), end="")
             except:
-                raise ValueError("Value in R%d (%s) is not in range 0-255 (x00-xFF)" % (src, lc_hex(self.get_register(src))))
+                raise ValueError("value in R%d (%s) is not in range 0-255 (x00-xFF)" % (src, lc_hex(self.get_register(src))))
         
     def STI_format(self, instruction, location):
         dst = (instruction & 0b0000111000000000) >> 9
@@ -893,7 +952,7 @@ class LC3(object):
         elif vector == 0x25:
             return "HALT"
         else:
-            raise ValueError("invalid TRAP vector: %s" % lc_hex(vector))
+            return ";; Invalid TRAP vector: %s" % lc_hex(vector)
 
     def BR(self, instruction):
         n = instruction & 0b0000100000000000
@@ -910,10 +969,10 @@ class LC3(object):
             p and self.get_nzp(2)):
             self.set_pc(plus(self.get_pc(), sext(pc_offset9,9)))
             if self.debug:
-                print("    True - branching to", lc_hex(self.get_pc()))
+                self.Print("    True - branching to", lc_hex(self.get_pc()))
         else:
             if self.debug:
-                print("    False - continuing...")
+                self.Print("    False - continuing...")
 
     def BR_format(self, instruction, location):
         n = instruction & 0b0000100000000000
@@ -944,7 +1003,7 @@ class LC3(object):
         location = plus(self.get_pc(), sext(pc_offset9,9))
         memory = self.get_memory(location)
         if self.debug:
-            print("  Reading memory[x%04x] (x%04x) =>" % (location, memory))
+            self.Print("  Reading memory[x%04x] (x%04x) =>" % (location, memory))
         self.set_register(dst, memory)
         self.set_nzp(self.get_register(dst))
 
@@ -960,7 +1019,7 @@ class LC3(object):
         location = plus(self.get_register(base), sext(pc_offset6,6))
         memory = self.get_memory(location)
         if self.debug:
-            print("  Reading memory[x%04x] (x%04x) =>" % (location, memory))
+            self.Print("  Reading memory[x%04x] (x%04x) =>" % (location, memory))
         self.set_register(dst, memory)
         self.set_nzp(self.get_register(dst))
 
@@ -1160,24 +1219,24 @@ class LC3(object):
         self.assemble(text)
         self.run()
         self.dump_registers()
-        print("Instructions:", self.instruction_count)
-        print("Cycles: %s (%f milliseconds)" % 
+        self.Print("Instructions:", self.instruction_count)
+        self.Print("Cycles: %s (%f milliseconds)" % 
               (self.cycle, self.cycle * 1./2000000))
 
     def save(self, base):
         # producing output
         # symbol list for Simulators
         with open(base + '.sym', 'w') as f:
-            print('''//Symbol Name		Page Address
+            self.Print('''//Symbol Name		Page Address
 //----------------	------------
 //''', end='\t', file=f)
         
-            print('\n//\t'.join('\t%-20s%4x' % (name, value)
+            self.Print('\n//\t'.join('\t%-20s%4x' % (name, value)
                             for name, value in self.labels.items()), file=f)
         
         with open(base + '.bin', 'w') as f:
-            print('{0:016b}'.format(self.orig), file=f)  # orig address
-            print('\n'.join('{0:016b}'.format(self.get_memory(m)) for m in range(self.orig, self.get_pc())),
+            self.Print('{0:016b}'.format(self.orig), file=f)  # orig address
+            self.Print('\n'.join('{0:016b}'.format(self.get_memory(m)) for m in range(self.orig, self.get_pc())),
                     file=f)
     
         # object file for running in Simulator
@@ -1193,59 +1252,49 @@ class LC3(object):
     def execute(self, text):
         words = [word.strip() for word in text.split()]
         if words[0] == "%help":
-            print("Interactive Directives: ")
-            print(" %debug                          - toggle debug")
-            print(" %cont                           - continue running")
-            print(" %step                           - execute the next instruction, increment PC")
-            print(" %reset                          - reset LC3 to start state")
-            print(" %raw [start [stop]]             - list meory in hex")
-            print(" %list                           - list program from memory")
-            print(" %dump [start [stop]]            - dump memory as program")
-            print(" %regs                           - show registers")
-            print(" %set pc HEXVALUE                - set PC")
-            print(" %set memory HEXLOCATION HEXVALUE- set memory")
-            print(" %set reg VALUE HEXVALUE         - set register")
-            print(" %set warn BOOL                  - set warnings on/off")
-            print(" %get pc                         - get PC")
-            print(" %get memory HEXLOCATION         - get memory")
-            print(" %get reg VALUE                  - get register")
+            self.Print("Interactive Directives: ")
+            self.Print(" %debug                          - toggle debug")
+            self.Print(" %cont                           - continue running")
+            self.Print(" %step                           - execute the next instruction, increment PC")
+            self.Print(" %reset                          - reset LC3 to start state")
+            self.Print(" %raw [start [stop]]             - list meory in hex")
+            self.Print(" %list                           - list program from memory")
+            self.Print(" %dis [start [stop]]            - dump memory as program")
+            self.Print(" %regs                           - show registers")
+            self.Print(" %set pc HEXVALUE                - set PC")
+            self.Print(" %set memory HEXLOCATION HEXVALUE- set memory")
+            self.Print(" %set reg VALUE HEXVALUE         - set register")
+            self.Print(" %set warn BOOL                  - set warnings on/off")
+            self.Print(" %get pc                         - get PC")
+            self.Print(" %get memory HEXLOCATION         - get memory")
+            self.Print(" %get reg VALUE                  - get register")
             return True
         elif words[0] == "%debug":
             self.debug = not self.debug
             return True
         elif words[0] == "%raw":
-            if len(words) > 0:
-                start = int("0" + words[1], 16)
-                if len(words) > 1:
-                    stop = int("0" + words[2], 16)
-                else:
-                    stop = start + 25
-            else:
-                start = 0x3000
-                stop = 0x3000 + 25
             try:
-                for x in range(start, stop):
-                    print(lc_hex(x), lc_hex(self.get_memory(x)))
+                self.dump(*[int("0" + word, 16) for word in words[1:]], raw=True)
             except:
-                print("Help: %raw [start [stop]]")
+                self.Error("Error; did you run code first?")
             return True
         elif words[0] == "%list":
             try:
                 self.dump()
             except:
-                print("Error; did you run code first?")
+                self.Error("Error; did you run code first?")
             return True
         elif words[0] == "%regs":
             try:
                 self.dump_registers()
             except:
-                print("Error; did you run code first?")
+                self.Error("Error; did you run code first?")
             return True
-        elif words[0] == "%dump":
+        elif words[0] == "%dis":
             try:
                 self.dump(*[int("0" + word, 16) for word in words[1:]])
             except:
-                print("Error; did you run code first?")
+                self.Error("Error; did you run code first?")
             return True
         elif words[0] == "%set":
             try:
@@ -1259,34 +1308,34 @@ class LC3(object):
                     self.warn = bool(int(words[2]))
                     self.warn = bool(int(words[2]))
                 else:
-                    print("Use %set [pc|memory|reg|warn] ...")                
+                    self.Error("Use %set [pc|memory|reg|warn] ...")                
             except:
-                print("Hint: %set pc x3000")
-                print("      %set reg 1 xFFFF")
-                print("      %set memory x300A x1")
-                print("      %set warn 0")
+                self.Error("Hint: %set pc x3000")
+                self.Error("      %set reg 1 xFFFF")
+                self.Error("      %set memory x300A x1")
+                self.Error("      %set warn 0")
                 self.dump_registers()
             return True
         elif words[0] == "%get":
             try:
                 if words[1] == "pc":
-                    print(lc_hex(self.get_pc()))
+                    self.Print(lc_hex(self.get_pc()))
                 elif words[1] == "memory":
-                    print(lc_hex(self.get_memory(int("0" + words[2], 16))))
+                    self.Print(lc_hex(self.get_memory(int("0" + words[2], 16))))
                 elif words[1] == "reg":
-                    print(self.get_register(int(words[2])))
+                    self.Print(self.get_register(int(words[2])))
                 elif words[1] == "warn":
-                    print(int(self.warn))
+                    self.Print(int(self.warn))
                 else:
-                    print("Use %get [pc|memory|reg|warn] ...")                
+                    self.Error("Use %get [pc|memory|reg|warn] ...")                
             except:
-                print("Hint: %get pc")
-                print("      %get reg 1")
-                print("      %get memory x300A")
-                print("      %get warn")
+                self.Error("Hint: %get pc")
+                self.Error("      %get reg 1")
+                self.Error("      %get memory x300A")
+                self.Error("      %get warn")
             return True
         elif words[0] == "%reset":
-            self.initialize()
+            self.initialize(runit=True)
             return True
         elif words[0] == "%cont":
             try:
@@ -1294,7 +1343,7 @@ class LC3(object):
                 self.dump_registers()
             except:
                 #traceback.print_exc()
-                print("Error")
+                self.Error("Error: unknown command: %s" % words[0])
             return True
         elif words[0] == "%step":
             orig_debug = self.debug
@@ -1310,30 +1359,28 @@ class LC3(object):
             ok = False
             try:
                 # if .orig in code, then run, otherwise just assemble:
-                self.pc = self.orig
+                self.set_pc(self.orig)
                 self.run()
                 self.dump_registers()
-                print("Instructions:", self.instruction_count)
-                print("Cycles: %s (%f milliseconds)" % 
+                self.Print("Instructions:", self.instruction_count)
+                self.Print("Cycles: %s (%f milliseconds)" % 
                       (self.cycle, self.cycle * 1./2000000))
                 ok = True
             except Exception as exc:
                 if self.debug:
                     traceback.print_exc()
-                if self.get_pc() in self.source:
-                    sys.stderr.write("\nRuntime error!\nFile \"%s\", line %s\n" % 
-                                     (self.filename, 
-                                      self.source[self.get_pc()]))
+                if self.get_pc() - 1 in self.source:
+                    self.Error("\nRuntime error:\n    line %s:\n%s" % 
+                               (self.source[self.get_pc() - 1], str(exc)))
                 else:
-                    sys.stderr.write("\nRuntime error!\nFile \"%s\", memory %s\n" % 
-                                     (self.filename, 
-                                      lc_hex(self.get_pc())))
-                sys.stderr.write(str(exc) + "\n")
+                    self.Error("\nRuntime error:\n    memory %s\n%s" % 
+                               (lc_hex(self.get_pc() - 1, str(exc))))
+                self.Error(str(exc) + "\n")
                 ok = False
             return ok
 
         ### Else, must be code to assemble:
-        self.reset_memory()
+        self.reset_memory(reset_pc=True)
         ok = False
         try:
             self.assemble(text)
@@ -1343,15 +1390,13 @@ class LC3(object):
         except Exception as exc:
             if self.debug:
                 traceback.print_exc()
-            if self.get_pc() in self.source:
-                sys.stderr.write("\nAssemble error!\nFile \"%s\", line %s\n" % 
-                                 (self.filename, 
-                                  self.source[self.get_pc()]))
+            if self.get_pc() - 1 in self.source:
+                self.Error("\nAssemble error!\n    line %s\n" % 
+                           self.source[self.get_pc() - 1])
             else:
-                sys.stderr.write("\nAssemble error!\nFile \"%s\", memory %s\n" % 
-                                 (self.filename, 
-                                  lc_hex(self.get_pc())))
-            sys.stderr.write(str(exc) + "\n")
+                self.Error("\nAssemble error!\n    memory %s\n" % 
+                           lc_hex(self.get_pc() - 1))
+            self.Error(str(exc) + "\n")
             ok = False
 
         return ok
