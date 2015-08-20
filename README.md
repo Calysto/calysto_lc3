@@ -14,7 +14,7 @@ To install::
 To use it, run one of:
 
 * ipython notebook
-  # In the notebook interface, select 'Calysto LC3' from the 'New' menu
+  * In the notebook interface, select 'Calysto LC3' from the 'New' menu
 * ipython qtconsole --kernel calysto_lc3
 * ipython console --kernel calysto_lc3
 
