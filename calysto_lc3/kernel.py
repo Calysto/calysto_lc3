@@ -2,7 +2,7 @@ from __future__ import print_function
 
 from metakernel import MetaKernel
 
-from lc3 import LC3
+from .lc3 import LC3
 
 class CalystoLC3(MetaKernel):
     implementation = 'LC3'
@@ -128,6 +128,3 @@ Create a breakpoint at location x3005:
     def repr(self, data):
         return repr(data)
 
-if __name__ == '__main__':
-    from IPython.kernel.zmq.kernelapp import IPKernelApp
-    IPKernelApp.launch_instance(kernel_class=CalystoLC3)
