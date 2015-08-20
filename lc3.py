@@ -10,6 +10,15 @@ Order of BRanch flags relaxed, BR without flags interpreted as BRnzp
 from array import array
 import sys
 
+def ascii_str(i):
+    if i < 256:
+        if i < 32 or i > 127: # integers
+            return "(or %s)" % i
+        else: # int, or ASCII
+            return "(or %s, %s)" % (i, repr(chr(i)))
+    else:
+        return "" 
+
 class HEX(int):
     def __repr__(self):
         return lc_hex(self)
@@ -179,6 +188,7 @@ class LC3(object):
         # Functions for interpreting instructions:
         self.kernel = kernel
         self.char_buffer = []
+        self.breakpoints = {}
         self.dump_mode = "dis"
         self.apply = {
             0b0000: self.BR,
@@ -233,7 +243,8 @@ class LC3(object):
         self.orig = 0x3000
         self.line_count = 1
         self.set_pc(HEX(0x3000))
-        self.cont = False
+        self.cont = True
+        self.suspended = False
         self.instruction_count = 0
         self.immediate_mask = {}
         for im in self.immediate:
@@ -251,6 +262,7 @@ class LC3(object):
         debug = self.debug 
         self.debug = self.meta
         self.memory = array('i', [0] * (1 << 16))
+        self.breakpoints = {}
         # We reset these items here and below because of 
         # bug (related to hack in interpreter?)
         self.source = {}
@@ -513,6 +525,7 @@ class LC3(object):
                             if words[1].startswith('x')
                             else words[1], 0))
             self.orig = self.get_pc()
+            self.breakpoints = {}
             self.line_count = 0
             self.dump_mode = "dis"
             return
@@ -706,6 +719,7 @@ class LC3(object):
             self.set_memory(0xFE04, 0xFFFF) ## OS_DSR Display Ready
             self.set_memory(0xFE00, 0xFFFF) ## OS_KBSR Keyboard Ready
         self.cont = True
+        self.suspended = False
         if self.debug:
             self.Print("Tracing Script! PC* is incremented Program Counter")
             self.Print("(Instr/Cycles Count) INSTR [source line] (PC*: xHEX)")
@@ -714,6 +728,10 @@ class LC3(object):
             self.step()
 
     def step(self):
+        if self.debug:
+            self.Print("=" * 60)
+            self.Print("Stepping...  => read, <= write, (Instructions/Cycles):")
+            self.Print("=" * 60)
         pc = self.get_pc()
         self.handleDebug(self.source.get(pc, -1))
         instruction = self.get_memory(pc)
@@ -722,9 +740,6 @@ class LC3(object):
         self.cycle += self.cycles[instr]
         self.increment_pc()
         if self.debug:
-            self.Print("=" * 60)
-            self.Print("Stepping...  => read, <= write, (Instructions/Cycles):")
-            self.Print("=" * 60)
             line = self.source.get(pc, -1)
             line_str = (" [%s]" % line) if (line != -1) else ""
             self.Print("(%s/%s) %s%s (%s*: %s)" % (
@@ -736,6 +751,10 @@ class LC3(object):
                 lc_hex(instruction)))
         #if (instr in self.apply):
         self.apply[instr](instruction)
+        if self.pc in self.breakpoints:
+            self.cont = False
+            self.suspended = True
+            self.Print("...breakpoint hit at", lc_hex(self.pc))
 
     def dump_registers(self):
         self.Print()
@@ -753,7 +772,7 @@ class LC3(object):
                 self.Print()
             count += 1
     
-    def dump(self, orig_start=None, orig_stop=None, raw=False):
+    def dump(self, orig_start=None, orig_stop=None, raw=False, header=True):
         if orig_start is None:
             start = self.orig
         else:
@@ -766,15 +785,17 @@ class LC3(object):
         if stop <= start:
             stop = start + 10
         if raw or self.dump_mode == "dump":
-            self.Print("=" * 60)
-            self.Print("Memory dump:")
-            self.Print("=" * 60)
+            if header:
+                self.Print("=" * 60)
+                self.Print("Memory dump:")
+                self.Print("=" * 60)
             for x in range(start, stop):
                 self.Print("%-10s %s: %s" % ("", lc_hex(x), lc_hex(self.get_memory(x))))
         else:
-            self.Print("=" * 60)
-            self.Print("Memory disassembled:")
-            self.Print("=" * 60)
+            if header:
+                self.Print("=" * 60)
+                self.Print("Memory disassembled:")
+                self.Print("=" * 60)
             for memory in range(start, stop):
                 instruction = self.get_memory(memory)
                 instr = (instruction >> 12) & 0xF
@@ -790,10 +811,7 @@ class LC3(object):
                     if instruction == 0:
                         ascii = "\\0"
                     else:
-                        try:
-                            ascii = repr(chr(instruction))
-                        except:
-                            ascii = instruction
+                        ascii = "%s %s" % (instruction, ascii_str(instruction))
                     self.Print("%-10s %s: %s - %s" % (
                         label, lc_hex(memory), lc_hex(instruction), ascii))
 
@@ -989,15 +1007,8 @@ class LC3(object):
         if p:
             instr += "p"
         val = self.lookup(plus(sext(pc_offset9,9), location) + 1)
-        if pc_offset9 < 256:
-            if pc_offset9 < 32: # integers
-                return "%s %s (or %s)" % (instr, lc_hex(val), pc_offset9)
-            elif pc_offset9 <= 127: # int, or ASCII
-                return "%s %s (or %s, %s)" % (instr, lc_hex(val), pc_offset9, repr(chr(pc_offset9)))
-            else: # integer
-                return "%s %s (or %s)" % (instr, lc_hex(val), pc_offset9)
-        else:
-            return "%s %s" % (instr, lc_hex(val))
+        ascii = ascii_str(pc_offset9)
+        return "%s %s %s" % (instr, lc_hex(val), ascii)
 
     def LD(self, instruction):
         dst = (instruction & 0b0000111000000000) >> 9
@@ -1224,9 +1235,14 @@ class LC3(object):
         self.instruction_count = 0
         self.run()
         self.dump_registers()
-        self.Print("=" * 60)
-        self.Print("Computation completed")
-        self.Print("=" * 60)
+        if self.suspended:
+            self.Print("=" * 60)
+            self.Print("Computation SUSPENDED")
+            self.Print("=" * 60)
+        else:
+            self.Print("=" * 60)
+            self.Print("Computation completed")
+            self.Print("=" * 60)
         self.Print("Instructions:", self.instruction_count)
         self.Print("Cycles: %s (%f milliseconds)" % 
                    (self.cycle, self.cycle * 1./2000000))
@@ -1291,7 +1307,7 @@ class LC3(object):
             elif words[0] == "%mem":
                 location = int("0" + words[1], 16)
                 self.set_memory(location, int("0" + words[2], 16))
-                self.dump(location, location + 1)
+                self.dump(location, location)
                 return True
             elif words[0] == "%reg":
                 self.set_register(int(words[1]), int("0" + words[2], 16))
@@ -1314,6 +1330,26 @@ class LC3(object):
                 self.debug = orig_debug
                 self.dump_registers()
                 return True
+            elif words[0] == "%bp":
+                if len(words) > 1:
+                    if words[1] == "clear":
+                        self.breakpoints = {}
+                        self.Print("All breakpoints cleared")
+                        return
+                    location = int("0" + words[1], 16)
+                    self.breakpoints[location] = True
+                if self.breakpoints:
+                    count = 1
+                    self.Print("=" * 60)
+                    self.Print("Breakpoints")
+                    self.Print("=" * 60)
+                    for memory in sorted(self.breakpoints.keys()):
+                        self.Print("    %d) " % count, end="")
+                        self.dump(memory, memory, header=False)
+                        count += 1
+                else:
+                    self.Print("    No breakpoints set")
+                return True
             elif words[0] == "%exe" or words[0] == "%cont":
                 ok = False
                 try:
@@ -1327,9 +1363,14 @@ class LC3(object):
                     else:
                         self.run(reset=False)
                     self.dump_registers()
-                    self.Print("=" * 60)
-                    self.Print("Computation completed")
-                    self.Print("=" * 60)
+                    if self.suspended:
+                        self.Print("=" * 60)
+                        self.Print("Computation SUSPENDED")
+                        self.Print("=" * 60)
+                    else:
+                        self.Print("=" * 60)
+                        self.Print("Computation completed")
+                        self.Print("=" * 60)
                     self.Print("Instructions:", self.instruction_count)
                     self.Print("Cycles: %s (%f milliseconds)" % 
                           (self.cycle, self.cycle * 1./2000000))

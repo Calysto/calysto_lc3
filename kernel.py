@@ -25,8 +25,8 @@ class CalystoLC3(MetaKernel):
 
 Interactive Magic Directives: 
 
+ %bp [clear | SUSPENDHEX]           - show, clear, or set breakpoints
  %cont                              - continue running
- %d                                 - toggle debug
  %dis [STARTHEX [STOPHEX]]          - dump memory as program
  %dump [STARTHEX [STOPHEX]]         - list memory in hex
  %exe                               - execute the program
