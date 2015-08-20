@@ -1,4 +1,5 @@
-# calysto_littlecomputer
+# calysto_lc3
+
 Calysto Little Computer - LC3 Assembly Language for Jupyter 
 
 An Jupyter kernel for LC3
