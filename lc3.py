@@ -179,6 +179,7 @@ class LC3(object):
         # Functions for interpreting instructions:
         self.kernel = kernel
         self.char_buffer = []
+        self.dump_mode = "dis"
         self.apply = {
             0b0000: self.BR,
             0b0001: self.ADD,
@@ -230,7 +231,7 @@ class LC3(object):
         self.source = {}
         self.cycle = 0
         self.orig = 0x3000
-        self.line_count = 0
+        self.line_count = 1
         self.set_pc(HEX(0x3000))
         self.cont = False
         self.instruction_count = 0
@@ -265,7 +266,7 @@ class LC3(object):
         self.label_location = {}
         self.set_pc(0x3000)
         self.orig = HEX(0x3000)
-        self.line_count = 0
+        self.line_count = 1
 
     def reset_registers(self):
         debug = self.debug
@@ -462,6 +463,7 @@ class LC3(object):
             inst = eval("0b" + alltogether)
             self.set_instruction(self.get_pc(), inst, line_count)
             self.increment_pc()
+            self.dump_mode = "dump"
             return
         elif len(words) > 1 and is_bin(alltogether1) and not self.is_keyword(words[0]):
             ## Allow:
@@ -470,6 +472,7 @@ class LC3(object):
             inst = eval("0b" + alltogether1)
             self.set_instruction(self.get_pc(), inst, line_count)
             self.increment_pc()
+            self.dump_mode = "dump"
             return
         elif len(words) == 1 and is_hex(words[0]): 
             ## Allow:
@@ -477,6 +480,7 @@ class LC3(object):
             inst = eval("0" + words[0])
             self.set_instruction(self.get_pc(), inst, line_count)
             self.increment_pc()
+            self.dump_mode = "dump"
             return
         elif len(words) == 2 and is_hex(words[1]) and not self.is_keyword(words[0]):
             ## Allow:
@@ -485,6 +489,7 @@ class LC3(object):
             inst = eval("0" + words[1])
             self.set_instruction(self.get_pc(), inst, line_count)
             self.increment_pc()
+            self.dump_mode = "dump"
             return
         elif '.FILL' in words:
             word = words[words.index('.FILL') + 1]
@@ -509,6 +514,7 @@ class LC3(object):
                             else words[1], 0))
             self.orig = self.get_pc()
             self.line_count = 0
+            self.dump_mode = "dis"
             return
         elif '.STRINGZ' in words:
             if self.valid_label(words[0]):
@@ -558,6 +564,7 @@ class LC3(object):
                 self.set_assembly_mode(words[2])
             return
         # -------------------------------------------------------------
+        self.dump_mode = "dis"
         ind = -1
         if words[0].startswith('BR'):
             ind = 0
@@ -715,6 +722,9 @@ class LC3(object):
         self.cycle += self.cycles[instr]
         self.increment_pc()
         if self.debug:
+            self.Print("=" * 60)
+            self.Print("Stepping...  => read, <= write, (Instructions/Cycles):")
+            self.Print("=" * 60)
             line = self.source.get(pc, -1)
             line_str = (" [%s]" % line) if (line != -1) else ""
             self.Print("(%s/%s) %s%s (%s*: %s)" % (
@@ -729,9 +739,9 @@ class LC3(object):
 
     def dump_registers(self):
         self.Print()
-        self.Print("=" * 50)
+        self.Print("=" * 60)
         self.Print("Registers:")
-        self.Print("=" * 50)
+        self.Print("=" * 60)
         self.Print("PC:", lc_hex(self.get_pc()))
         for r,v in zip("NZP", self.get_nzp()):
             self.Print("%s: %s" % (r,v), end=" ")
@@ -755,16 +765,16 @@ class LC3(object):
 
         if stop <= start:
             stop = start + 10
-        if raw:
-            self.Print("=" * 50)
-            self.Print("Memory:")
-            self.Print("=" * 50)
+        if raw or self.dump_mode == "dump":
+            self.Print("=" * 60)
+            self.Print("Memory dump:")
+            self.Print("=" * 60)
             for x in range(start, stop):
                 self.Print("%-10s %s: %s" % ("", lc_hex(x), lc_hex(self.get_memory(x))))
         else:
-            self.Print("=" * 50)
-            self.Print("Memory, disassembled:")
-            self.Print("=" * 50)
+            self.Print("=" * 60)
+            self.Print("Memory disassembled:")
+            self.Print("=" * 60)
             for memory in range(start, stop):
                 instruction = self.get_memory(memory)
                 instr = (instruction >> 12) & 0xF
@@ -1209,14 +1219,17 @@ class LC3(object):
     def execute_file(self, filename):
         text = self.load(filename)
         self.assemble(text)
+        self.set_pc(self.orig)
+        self.cycle = 0
+        self.instruction_count = 0
         self.run()
         self.dump_registers()
-        self.Print("=" * 50)
-        self.Print("Execution completed")
-        self.Print("=" * 50)
+        self.Print("=" * 60)
+        self.Print("Computation completed")
+        self.Print("=" * 60)
         self.Print("Instructions:", self.instruction_count)
         self.Print("Cycles: %s (%f milliseconds)" % 
-              (self.cycle, self.cycle * 1./2000000))
+                   (self.cycle, self.cycle * 1./2000000))
 
     def save(self, base):
         # producing output
@@ -1246,101 +1259,113 @@ class LC3(object):
 
     def execute(self, text):
         words = [word.strip() for word in text.split()]
-        if words[0] == "%debug":
-            self.debug = not self.debug
-            return True
-        elif words[0] == "%raw":
-            try:
-                self.dump(*[int("0" + word, 16) for word in words[1:]], raw=True)
-            except:
-                self.Error("Error; did you load code first?")
-            return True
-        elif words[0] == "%regs":
-            try:
+        if words[0].startswith("%"):
+            if words[0] == "%dump":
+                try:
+                    self.dump(*[int("0" + word, 16) for word in words[1:]], raw=True)
+                except:
+                    self.Error("Error; did you load code first?")
+                return True
+            elif words[0] == "%regs":
+                try:
+                    self.dump_registers()
+                except:
+                    self.Error("Error; did you load code first?")
+                return True
+            elif words[0] == "%dis":
+                try:
+                    self.dump(*[int("0" + word, 16) for word in words[1:]])
+                except:
+                    self.Error("Error; did you run load first?")
+                return True
+            elif words[0] == "%d":
+                self.debug = not self.debug
+                self.Print("Debug is now " % ["off", "on"][int(self.debug)])
+                return True
+            elif words[0] == "%pc":
+                self.cycle = 0
+                self.instruction_count = 0
+                self.set_pc(int("0" + words[1], 16))
                 self.dump_registers()
-            except:
-                self.Error("Error; did you load code first?")
-            return True
-        elif words[0] == "%dis":
-            try:
-                self.dump(*[int("0" + word, 16) for word in words[1:]])
-            except:
-                self.Error("Error; did you run load first?")
-            return True
-        elif words[0] == "%pc":
-            self.set_pc(int("0" + words[1], 16))
-            return True
-        elif words[0] == "%mem":
-            self.set_memory(int("0" + words[1], 16), int("0" + words[2], 16))
-            return True
-        elif words[0] == "%reg":
-            self.set_register(int(words[1]), int("0" + words[2], 16))
-            return True
-        elif words[0] == "%warn":
-            self.warn = bool(int(words[1]))
-            return True
-        elif words[0] == "%reset":
-            self.initialize(runit=True)
-            return True
-        elif words[0] == "%cont":
-            try:
+                return True
+            elif words[0] == "%mem":
+                location = int("0" + words[1], 16)
+                self.set_memory(location, int("0" + words[2], 16))
+                self.dump(location, location + 1)
+                return True
+            elif words[0] == "%reg":
+                self.set_register(int(words[1]), int("0" + words[2], 16))
+                self.dump_registers()
+                return True
+            elif words[0] == "%warn":
+                self.warn = bool(int(words[1]))
+                return True
+            elif words[0] == "%reset":
+                self.initialize(runit=True)
+                self.dump_registers()
+                return True
+            elif words[0] == "%step":
+                orig_debug = self.debug
+                self.debug = True
+                if self.get_pc() in self.source:
+                    lineno = self.source[self.get_pc()]
+                    ## show trace
                 self.step()
+                self.debug = orig_debug
                 self.dump_registers()
-            except:
-                self.Error("Error: unknown command: %s" % words[0])
-            return True
-        elif words[0] == "%step":
-            orig_debug = self.debug
-            self.debug = True
-            if self.get_pc() in self.source:
-                lineno = self.source[self.get_pc()]
-                ## show trace
-            self.step()
-            self.debug = orig_debug
-            self.dump_registers()
-            return True
-        elif words[0] == "%exe":
+                return True
+            elif words[0] == "%exe" or words[0] == "%cont":
+                ok = False
+                try:
+                    # if .orig in code, then run, otherwise just assemble:
+                    self.debug = False
+                    if words[0] == "%exe":
+                        self.cycle = 0
+                        self.instruction_count = 0
+                        self.set_pc(self.orig)
+                        self.run()
+                    else:
+                        self.run(reset=False)
+                    self.dump_registers()
+                    self.Print("=" * 60)
+                    self.Print("Computation completed")
+                    self.Print("=" * 60)
+                    self.Print("Instructions:", self.instruction_count)
+                    self.Print("Cycles: %s (%f milliseconds)" % 
+                          (self.cycle, self.cycle * 1./2000000))
+                    ok = True
+                except Exception as exc:
+                    if self.get_pc() - 1 in self.source:
+                        self.Error("\nRuntime error:\n    line %s:\n%s" % 
+                                   (self.source[self.get_pc() - 1], str(exc)))
+                    else:
+                        self.Error("\nRuntime error:\n    memory %s\n%s" % 
+                                   (lc_hex(self.get_pc() - 1), str(exc)))
+                    ok = False
+                return ok
+            else:
+                self.Error("Invalid Interactive Magic Directive\nHint: %help")
+                return False
+        else:
+            ### Else, must be code to assemble:
+            self.labels = {}
+            self.label_location = {}
             ok = False
             try:
-                # if .orig in code, then run, otherwise just assemble:
-                self.set_pc(self.orig)
-                self.run()
+                self.assemble(text)
+                self.dump()
                 self.dump_registers()
-                self.Print("Instructions:", self.instruction_count)
-                self.Print("Cycles: %s (%f milliseconds)" % 
-                      (self.cycle, self.cycle * 1./2000000))
                 ok = True
             except Exception as exc:
                 if self.get_pc() - 1 in self.source:
-                    self.Error("\nRuntime error:\n    line %s:\n%s" % 
-                               (self.source[self.get_pc() - 1], str(exc)))
+                    self.Error("\nAssemble error\n    line %s\n" % 
+                               self.source[self.get_pc()])
                 else:
-                    self.Error("\nRuntime error:\n    memory %s\n%s" % 
-                               (lc_hex(self.get_pc() - 1), str(exc)))
+                    self.Error("\nAssemble error\n    memory %s\n" % 
+                               lc_hex(self.get_pc() - 1))
+                self.Error(str(exc) + "\n")
                 ok = False
-            return ok
-
-        ### Else, must be code to assemble:
-        self.labels = {}
-        self.label_location = {}
-        ok = False
-        try:
-            self.assemble(text)
-            self.dump()
-            self.dump_registers()
-            ok = True
-        except Exception as exc:
-            if self.get_pc() - 1 in self.source:
-                self.Error("\nAssemble error\n    line %s\n" % 
-                           self.source[self.get_pc()])
-            else:
-                self.Error("\nAssemble error\n    memory %s\n" % 
-                           lc_hex(self.get_pc() - 1))
-            self.Error(str(exc) + "\n")
-            ok = False
-
         return ok
-
 
 def get_os():
     return """

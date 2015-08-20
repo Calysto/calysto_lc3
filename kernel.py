@@ -11,8 +11,8 @@ class CalystoLC3(MetaKernel):
     language_version = '0.1'
     banner = "Calysto Little Computer 3 - assembly language of the LC3"
     language_info = {
-        'name': 'asm',
-        'mimetype': 'text/x-asm',
+        'name': 'gas',
+        'mimetype': 'text/x-gas',
         'file_extension': '.asm',
     }
 
@@ -28,10 +28,10 @@ Interactive Magic Directives:
  %cont                              - continue running
  %d                                 - toggle debug
  %dis [STARTHEX [STOPHEX]]          - dump memory as program
+ %dump [STARTHEX [STOPHEX]]         - list memory in hex
  %exe                               - execute the program
  %mem HEXLOCATION HEXVALUE          - set memory
  %pc HEXVALUE                       - set PC
- %raw [STARTHEX [STOPHEX]]          - list memory in hex
  %reg REG HEXVALUE                  - set register REG to HEXVALUE
  %regs                              - show registers
  %reset                             - reset LC3 to start state
