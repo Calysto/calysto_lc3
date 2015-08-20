@@ -23,7 +23,7 @@ class CalystoLC3(MetaKernel):
     def get_usage(self):
         return """This is the Calysto LC3 Jupyter kernel.
 
-Interactive Magic Directives: 
+LC3 Interactive Magic Directives: 
 
  %bp [clear | SUSPENDHEX]           - show, clear, or set breakpoints
  %cont                              - continue running
@@ -38,7 +38,76 @@ Interactive Magic Directives:
  %step                              - execute the next instruction, increment PC
 
 HEX values begin with an 'x' and are composed of 4 0-F digits or letters.
+
+To get additional help on these items, use '%help %item'.
+
+To see additional magics, use %lsmagic, and put a question mark after a magic 
+name.
 """
+
+    def get_completions(self, info):
+        token = info["help_obj"]
+        matches = []
+        for item in (list(self.lc3.mnemonic.values()) + 
+                     [".ORIG", ".END", "GETC", "OUT", "PUTS", "IN", "PUTSP", 
+                      "HALT"] + 
+                     list(self.lc3.labels.keys()) + 
+                     ["%bp", "%cont", "%dis",  "%dump",  "%exe",  "%mem",  
+                      "%pc", "%reg",  "%regs",  "%reset",  "%step"]):
+            if item.startswith(token) and item not in matches:
+                matches.append(item)
+        return matches
+
+    def get_kernel_help_on(self, info, level=0, none_on_fail=False):
+        expr = info["code"]
+        if expr == "%bp":
+            return """%bp - See, clear, or set a breakpoint.
+See all of the breakpoints:
+    %bp
+
+Clear all of the breakpoints:
+    %bp clear
+
+Create a breakpoint at location x3005:
+    %bp x3005
+"""
+        elif expr == "%cont":
+            return """%cont - Continue executing the program
+"""
+        elif expr == "%dis":
+            return """%dis - Disassemble memory
+"""
+        elif expr == "%dump":
+            return """%dump - Dump memory
+"""
+        elif expr == "%exe":
+            return """%exe - Execute the program
+"""
+        elif expr == "%mem":
+            return """%mem - Set a memory location
+"""                      
+        elif expr == "%pc":
+            return """%pc - Set the Program Counter
+"""
+        elif expr == "%reg":
+            return """%reg - Set a register
+"""
+        elif expr == "%regs":
+            return """%regs - See the registers
+"""
+        elif expr == "%reset":
+            return """%reset - Reset the LC3
+"""
+        elif expr == "%step":
+            return """%step - Execute the next instruction
+"""
+        elif none_on_fail:
+            return None
+        else:
+            return "No available help on '%s'" % expr
+
+    def do_execute_file(self, filename):
+        self.lc.execute_file(filename)
 
     def do_execute_direct(self, code):
         try:
