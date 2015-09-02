@@ -1359,6 +1359,7 @@ class LC3(object):
                         self.cycle = 0
                         self.instruction_count = 0
                         self.set_pc(self.orig)
+                        self.reset_registers()
                         self.run()
                     else:
                         self.run(reset=False)
