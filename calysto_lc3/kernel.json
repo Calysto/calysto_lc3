@@ -3,5 +3,5 @@
  "argv": ["python3", 
 	  "/home/dblank/.ipython/kernels/calysto_lc3/kernel.py",  
           "-f", "{connection_file}"],
- "language": "asm"
+ "language": "gas"
 }

@@ -528,6 +528,7 @@ class LC3(object):
             self.breakpoints = {}
             self.line_count = 0
             self.dump_mode = "dis"
+            self.reset_registers()
             return
         elif '.STRINGZ' in words:
             if self.valid_label(words[0]):
@@ -1234,7 +1235,6 @@ class LC3(object):
         self.cycle = 0
         self.instruction_count = 0
         self.run()
-        self.dump_registers()
         if self.suspended:
             self.Print("=" * 60)
             self.Print("Computation SUSPENDED")
@@ -1246,6 +1246,7 @@ class LC3(object):
         self.Print("Instructions:", self.instruction_count)
         self.Print("Cycles: %s (%f milliseconds)" % 
                    (self.cycle, self.cycle * 1./2000000))
+        self.dump_registers()
 
     def save(self, base):
         # producing output
@@ -1363,7 +1364,6 @@ class LC3(object):
                         self.run()
                     else:
                         self.run(reset=False)
-                    self.dump_registers()
                     if self.suspended:
                         self.Print("=" * 60)
                         self.Print("Computation SUSPENDED")
@@ -1375,6 +1375,7 @@ class LC3(object):
                     self.Print("Instructions:", self.instruction_count)
                     self.Print("Cycles: %s (%f milliseconds)" % 
                           (self.cycle, self.cycle * 1./2000000))
+                    self.dump_registers()
                     ok = True
                 except Exception as exc:
                     if self.get_pc() - 1 in self.source:
