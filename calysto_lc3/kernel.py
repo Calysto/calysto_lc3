@@ -114,6 +114,8 @@ Create a breakpoint at location x3005:
             self.lc3.execute(code.rstrip())
         except Exception as exc:
             self.Error(str(exc))
+        except KeyboardInterrupt:
+            self.Error("Keyboard Interrupt!")
 
     def do_is_complete(self, code):
         if code:
