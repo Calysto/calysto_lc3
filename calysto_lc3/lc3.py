@@ -265,9 +265,6 @@ class LC3(object):
         self.breakpoints = {}
         # We reset these items here and below because of 
         # bug (related to hack in interpreter?)
-        self.source = {}
-        self.labels = {}
-        self.label_location = {}
         self.assemble(text)
         self.debug = debug
         if runit:
@@ -510,12 +507,11 @@ class LC3(object):
             except ValueError:
                 value = self.get_immediate(word)
                 if value is None:
-                    # FIXME: come back later and put the value in this memory location!
                     label = self.make_label(word)
                     if label in self.label_location:
-                        self.label_location[self.make_label(word)].append([self.get_pc(), 0xFFFF, 16])
+                        self.label_location[label].append([self.get_pc(), 0xFFFF, -1])
                     else:
-                        self.label_location[self.make_label(word)] = [[self.get_pc(), 0xFFFF, 16]]
+                        self.label_location[label] = [[self.get_pc(), 0xFFFF, -1]]
                 else:
                     self.set_memory(self.get_pc(), lc_bin(value))
             if words[0] != '.FILL':
@@ -612,6 +608,7 @@ class LC3(object):
             else:
                 if self.valid_label(word):
                     if self.make_label(word) in self.label_location:
+                        # FIXME: ? is this same as .FILL?
                         self.label_location[self.make_label(word)].append([self.get_pc(), 0xFFFF, 16])
                     else:
                         self.label_location[self.make_label(word)] = [[self.get_pc(), 0xFFFF, 16]]
@@ -663,6 +660,9 @@ class LC3(object):
                 s in ["GETC", "OUT", "PUTS", "IN", "PUTSP", "HALT"])
 
     def assemble(self, code):
+        self.source = {}
+        self.labels = {}
+        self.label_location = {}
         # processing the lines
         # first pass:
         for line in code.splitlines():
@@ -689,7 +689,7 @@ class LC3(object):
                     # but seems correct for some code (lc3os.asm)
                     if self.get_memory(ref) == 0: # not instruction -> absolute
                         self.set_memory(ref, self.labels[label])
-                    elif not self.in_range(current, bits) :
+                    elif bits != -1 and not self.in_range(current, bits) :
                         raise ValueError(("Not an instruction: \"%s\", mask %s, offset %s,  %s, ref %s" %
                                 (label,
                                 bin(mask),
@@ -697,11 +697,17 @@ class LC3(object):
                                 bin(self.labels[label]),
                                 lc_hex(ref))))
                     else:
-                        # FIXME: not sure what this is, but if we init
-                        # memory first, it works ok
-                        self.set_memory(ref, 
-                                        plus(self.get_memory(ref), 
-                                             lc_bin(mask & current)))
+                        # FIXME: 
+                        # Sets memory to value of label
+                        # ref, mask, bits: [x4000, 511, 9], [x4000, FFFF, -1]
+                        # where label was used in instruction
+                        # requires init memory first
+                        if bits == -1:
+                            self.set_memory(ref, self.labels[label])
+                        else:
+                            self.set_memory(ref, 
+                                            plus(self.get_memory(ref), 
+                                                 lc_bin(mask & current)))
 
     def handleDebug(self, lineno):
         pass
@@ -1013,7 +1019,10 @@ class LC3(object):
             instr += "p"
         val = self.lookup(plus(sext(pc_offset9,9), location) + 1)
         ascii = ascii_str(pc_offset9)
-        return "%s %s %s" % (instr, lc_hex(val), ascii)
+        if not (n or z or p):
+            return "NOOP - (no BR to %s) %s" % (lc_hex(val), ascii)
+        else:
+            return "%s %s %s" % (instr, lc_hex(val), ascii)
 
     def LD(self, instruction):
         dst = (instruction & 0b0000111000000000) >> 9
