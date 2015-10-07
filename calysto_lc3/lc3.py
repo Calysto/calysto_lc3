@@ -510,7 +510,9 @@ class LC3(object):
             except ValueError:
                 value = self.get_immediate(word)
                 if value is None:
-                    if self.make_label(word) in self.label_location:
+                    # FIXME: come back later and put the value in this memory location!
+                    label = self.make_label(word)
+                    if label in self.label_location:
                         self.label_location[self.make_label(word)].append([self.get_pc(), 0xFFFF, 16])
                     else:
                         self.label_location[self.make_label(word)] = [[self.get_pc(), 0xFFFF, 16]]
@@ -785,6 +787,8 @@ class LC3(object):
 
         if stop <= start:
             stop = start + 10
+        if stop - start > 100:
+            stop = start + 100
         if raw or self.dump_mode == "dump":
             if header:
                 self.Print("=" * 60)
@@ -841,15 +845,15 @@ class LC3(object):
     def STR(self, instruction):
         src = (instruction & 0b0000111000000000) >> 9
         base = (instruction & 0b0000000111000000) >> 6
-        pc_offset6 = instruction & 0b0000000000111111
-        self.set_memory(plus(self.get_register(base), sext(pc_offset6, 6)),
+        offset6 = instruction & 0b0000000000111111
+        self.set_memory(plus(self.get_register(base), sext(offset6, 6)),
                         self.get_register(src))
 
     def STR_format(self, instruction, location):
         src = (instruction & 0b0000111000000000) >> 9
         base = (instruction & 0b0000000111000000) >> 6
-        pc_offset6 = instruction & 0b0000000000111111
-        return "STR R%d, R%d, %s" % (src, base, lc_hex(self.lookup(plus(location, sext(pc_offset6,6)) + 1)))
+        offset6 = instruction & 0b0000000000111111
+        return "STR R%d, R%d, %s" % (src, base, offset6)
 
     def RTI(self, instruction):
         if (self.psr & 0b1000000000000000):
@@ -1027,10 +1031,10 @@ class LC3(object):
         return "LD R%d, %s" % (dst, lc_hex(self.lookup(plus(sext(pc_offset9,9), location) + 1)))
 
     def LDR(self, instruction):
-        dst = (instruction & 0b0000111000000000) >> 9
+        dst =  (instruction & 0b0000111000000000) >> 9
         base = (instruction & 0b0000000111000000) >> 6
-        pc_offset6 = instruction & 0b0000000000111111
-        location = plus(self.get_register(base), sext(pc_offset6,6))
+        offset6 = instruction & 0b0000000000111111
+        location = plus(self.get_register(base), sext(offset6,6))
         memory = self.get_memory(location)
         if self.debug:
             self.Print("  Reading memory[x%04x] (x%04x) =>" % (location, memory))
@@ -1040,8 +1044,8 @@ class LC3(object):
     def LDR_format(self, instruction, location):
         dst = (instruction & 0b0000111000000000) >> 9
         base = (instruction & 0b0000000111000000) >> 6
-        pc_offset6 = instruction & 0b0000000000111111
-        return "LDR R%d, R%d, %s" % (dst, base, lc_hex(self.lookup(plus(sext(pc_offset6,6), location) + 1)))
+        offset6 = instruction & 0b0000000000111111
+        return "LDR R%d, R%d, %s" % (dst, base, offset6)
 
     def ST(self, instruction):
         src = (instruction & 0b0000111000000000) >> 9
@@ -1304,6 +1308,12 @@ class LC3(object):
                 self.instruction_count = 0
                 self.set_pc(int("0" + words[1], 16))
                 self.dump_registers()
+                return True
+            elif words[0] == "%labels":
+                print("Label", "Location")
+                for key in self.labels:
+                    print(key + ":", hex(self.labels[key]))
+                print(self.label_location)
                 return True
             elif words[0] == "%mem":
                 location = int("0" + words[1], 16)
