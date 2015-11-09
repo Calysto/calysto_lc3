@@ -10,24 +10,6 @@ Order of BRanch flags relaxed, BR without flags interpreted as BRnzp
 from array import array
 import sys
 
-PY3 = sys.version_info[0] == 3
-
-try:
-    from metakernel import get_metakernel
-    kernel = get_metakernel()
-
-    if PY3:
-        __builtins__["input"] = kernel.raw_input
-        input = kernel.raw_input
-    else:
-        def input(*args, **kwargs):
-            return eval(kernel.raw_input(*args, **kwargs))
-        __builtins__["input"] = input
-        __builtins__["raw_input"] = kernel.raw_input
-        raw_input = kernel.raw_input
-except:
-    pass
-
 def ascii_str(i):
     if i < 256:
         if i < 32 or i > 127: # integers
@@ -956,7 +938,7 @@ class LC3(object):
         return "LEA R%d, %s" % (dst, lc_hex(self.lookup(plus(sext(pc_offset9,9), location) + 1)))
 
     def getc(self):
-        data = input("GETC: ")
+        data = self.kernel.raw_input("GETC: ")
         if data:
             if len(data) > 1:
                 self.char_buffer += [ord(char) for char in data[1:]]
