@@ -118,8 +118,8 @@ Create a breakpoint at location x3005:
             self.Error("Keyboard Interrupt!")
 
     def do_is_complete(self, code):
-        if code:
-            if code.split()[-1].strip() != "":
+        if code is not None and len(code.split("\n")) > 0:
+            if code.split("\n")[-1].strip() != "":
                 return {'status' : 'incomplete',
                         'indent': '    '}
             else:
