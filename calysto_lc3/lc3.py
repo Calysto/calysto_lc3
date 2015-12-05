@@ -9,6 +9,10 @@ Order of BRanch flags relaxed, BR without flags interpreted as BRnzp
 
 from array import array
 import sys
+try:
+    from IPython.display import HTML
+except:
+    pass
 
 def ascii_str(i):
     if i < 256:
@@ -83,6 +87,7 @@ class LC3(object):
     # if RX is used in an instruction, these are the positions:
     # 0000111222000333
     reg_pos = [9, 6, 0]
+    special_reg_pos = {"JSRR": [6]} ## JSRR R1
     flags = {'n': 1 << 11, 'z': 1 << 10, 'p': 1 << 9}
     # All variations of instructions:
     # Note that the following are handled in code:
@@ -98,9 +103,9 @@ class LC3(object):
         'IN': (0b1111 << 12) + 0x23,
         'JMP': 0b1100 << 12,
         'JMPT': (0b1100000 << 9) + 1,
-        'JSR': 0b01001 << 11,
-        'JSRR': 0b010000 << 9,
-        'LD': 0b0010 << 12,
+        'JSR':  0b01001 << 11,
+        'JSRR': 0b01000 << 11,
+        'LD':  0b0010 << 12,
         'LDI': 0b1010 << 12,
         'LDR': 0b0110 << 12,
         'LEA': 0b1110 << 12,
@@ -144,7 +149,7 @@ class LC3(object):
         'STI': 9,
         'STR': 6,
         'TRAP': 8,
-        'SHIFT': 6,
+        'SHIFT': 6,  ## SHIFT R2, #1
     }
     # Based on appendix figure C.2 and C.7 states, and 1 cycle for each memory read
     cycles = {
@@ -364,8 +369,8 @@ class LC3(object):
     def get_mem_str(self, loc):
         return 'x{0:04X}: {1:016b} {1:04x} '.format(loc, self.get_memory(loc))
 
-    def reg(self, s, n=1):
-        return self.registers[s.rstrip(', ')] << self.reg_pos[n]
+    #def reg(self, s, n=1):
+    #    return self.registers[s.rstrip(', ')] << self.reg_pos[n]
 
     def undefined(self, data):
         raise ValueError('Undefined Instruction: "%s"' % data)
@@ -379,10 +384,10 @@ class LC3(object):
     def bitwise_and(self, value, mask):
         if value >= 0:
             if (value & ~mask) and self.warn:
-                self.Error("Overflow immediate: %s at line %s\n" % (value, self.source.get(self.get_pc(), "unknown")))
+                self.Error("Warning: Possible overflow of immediate: %s at line %s\n" % (value, self.source.get(self.get_pc(), "unknown")))
         else:
             if (-value & ~(mask >> 1)) and self.warn:
-                self.Error("Overflow immediate: %s at line %s\n" % (value, self.source.get(self.get_pc(), "unknown")))
+                self.Error("Warning: Possible overflow of immediate: %s at line %s\n" % (value, self.source.get(self.get_pc(), "unknown")))
         return (value & mask)
 
     def get_immediate(self, word, mask=0xFFFF):
@@ -415,13 +420,15 @@ class LC3(object):
 
     def set_assembly_mode(self, mode):
         # clear out spare instructions
-        for key in self.instruction_info.keys():
+        for key in list(self.instruction_info.keys()):
             if (self.instruction_info[key] >> 12) == 0b1101:
                 del self.instruction_info[key]
-        for key in self.immediate.keys():
+        for key in list(self.immediate.keys()):
             if (self.immediate[key] >> 12) == 0b1101:
                 del self.immediate[key]
         # Add new instructions
+        ## SHIFT DST, SRC, immed6
+        ## TERMINAL SRC, 0/1=clear
         if mode == "SHIFT":
             # assembler:
             self.instruction_info["SHIFT"] = 0b1101 << 12
@@ -430,6 +437,14 @@ class LC3(object):
             self.cycles[0b1101] = 5  + 1
             self.apply[0b1101] = self.SHIFT
             self.format[0b1101] = self.SHIFT_format
+        elif mode == "TERMINAL":
+            # assembler:
+            self.instruction_info["TERMINAL"] = 0b1101 << 12
+            self.immediate["TERMINAL"] = 8
+            # interpreter:
+            self.cycles[0b1101] = 10  + 1
+            self.apply[0b1101] = self.TERMINAL
+            self.format[0b1101] = self.TERMINAL_format
         elif mode == "GRAPHICS":
             # assembler:
             self.instruction_info["CLEAR"]  = (0b1101 << 12) + (0b010 << 3)
@@ -448,7 +463,7 @@ class LC3(object):
             self.apply[0b1101] = self.SCREEN
             self.format[0b1101] = self.SCREEN_format
         else:
-            raise ValueError("Invalid .SET MODE, '%s'. Use 'GRAPHICS' or 'SHIFT'" % mode)
+            raise ValueError("Invalid .SET MODE, '%s'. Use 'GRAPHICS', 'SHIFT', or 'TERMINAL'" % mode)
         self.instructions = self.instruction_info.keys()
         self.immediate_mask = {}
         for im in self.immediate:
@@ -518,7 +533,7 @@ class LC3(object):
                 self.labels[self.make_label(words[0])] = self.get_pc()
             self.increment_pc()
             return    
-        elif '.ORIG' in words:
+        elif '.ORIG' in [word.upper() for word in words]:
             self.set_pc(int('0' + words[1]
                             if words[1].startswith('x')
                             else words[1], 0))
@@ -564,6 +579,51 @@ class LC3(object):
             self.set_instruction(self.get_pc(), 0, line_count)
             self.increment_pc()
             return
+        elif '.STRINGC' in words:
+            if self.valid_label(words[0]):
+                self.labels[self.make_label(words[0])] = self.get_pc()
+            #else:
+                # no label... could be a block of .STRINGZ
+                # raise ValueError('No label for .STRINGZ in line for PC = %s: %s, line #%s' % (lc_hex(self.get_pc()), line, line_count))
+            s = line.split('"')
+            string1 = string = s[1]
+            # rejoin if "  inside quotes
+            for st in s[2:]:
+                if string.endswith('\\'):
+                    string += '"' + st
+    
+            # encode backslash to get special characters
+            backslash = False
+            count = 1
+            last_m = None
+            for c in string:
+                if not backslash:
+                    if c == '\\':
+                        if not backslash:
+                            backslash = True
+                            continue
+                    m = ord(c)
+                else:
+                    if c in 'nblr':
+                        m = ord(c) - 100
+                    else:
+                        # easiest to implement:
+                        # anything else escaped is itself (unlike Python)
+                        m = ord(c)
+    
+                    backslash = False
+                if count % 2 == 0:
+                    self.set_instruction(self.get_pc(), m << 8 | last_m, line_count)
+                    self.increment_pc()
+                else:
+                    last_m = m
+                count += 1
+            if count % 2 == 0:
+                self.set_instruction(self.get_pc(), last_m, line_count)
+                self.increment_pc()
+            self.set_instruction(self.get_pc(), 0, line_count)
+            self.increment_pc()
+            return
         elif '.BLKW' in words:
             self.labels[self.make_label(words[0])] = self.get_pc()
             value = self.get_immediate(words[-1])
@@ -591,8 +651,8 @@ class LC3(object):
                 for f in words[ind][2:].lower():
                     fl |= self.flags[f]
                 words[ind] = 'BR'
-        if words[0] in self.instructions:
-            found = words[0]
+        if words[0].upper() in self.instructions:
+            found = words[0].upper()
         else:
             if self.valid_label(words[0]):
                 self.labels[self.make_label(words[0])] = self.get_pc()
@@ -626,10 +686,16 @@ class LC3(object):
             r = rc = 0
             rc += found == 'JMPT'
         
+            if found in self.special_reg_pos:
+                reg_pos = self.special_reg_pos[found]
+            else:
+                reg_pos = self.reg_pos
+
             for word in words[1:]:
                 word = word.rstrip(',')
+                
                 if word in self.regs:
-                    t = self.regs[word] << self.reg_pos[rc]
+                    t = self.regs[word] << reg_pos[rc]
                     r |= t
                     rc += 1
                 else:
@@ -938,7 +1004,8 @@ class LC3(object):
         return "LEA R%d, %s" % (dst, lc_hex(self.lookup(plus(sext(pc_offset9,9), location) + 1)))
 
     def getc(self):
-        data = self.kernel.raw_input("GETC: ")
+        ### No prompt for input:
+        data = self.kernel.raw_input()
         if data:
             if len(data) > 1:
                 self.char_buffer += [ord(char) for char in data[1:]]
@@ -1150,6 +1217,27 @@ class LC3(object):
             self.set_register(dst, self.get_register(src) << imm6)
         self.set_nzp(self.get_register(dst))
 
+    def TERMINAL(self, instruction):
+        ## TERMINAL SRC, 1
+        src = (instruction & 0b0000111000000000) >> 9
+        clear = (instruction & 0b0000000000000001)
+        string = ""
+        location = self.get_register(src)
+        memory = self.get_memory(location)
+        while memory != 0:
+            string += chr(memory & 0b0000000011111111)
+            if memory & 0b1111111100000000:
+                string += chr((memory & 0b1111111100000000) >> 8)
+            location += 1
+            memory = self.get_memory(location)
+        self.kernel.Display(HTML("<pre>" + string + "</pre>"), clear_output=clear)
+
+    def TERMINAL_format(self, instruction):
+        ## TERMINAL SRC, 1
+        src = (instruction & 0b0000111000000000) >> 9
+        clear = (instruction & 0b0000000100000000)
+        return "TERMINAL R%d, %d" % (src, clear)
+
     def SHIFT_format(self, instruction, location):
         ## SHIFT DST, SRC, DIR, immed4
         dst = (instruction & 0b0000111000000000) >> 9
@@ -1310,7 +1398,11 @@ class LC3(object):
                 return True
             elif words[0] == "%d":
                 self.debug = not self.debug
-                self.Print("Debug is now " % ["off", "on"][int(self.debug)])
+                self.Print("Debug is now %s" % ["off", "on"][int(self.debug)])
+                return True
+            elif words[0] == "%noop":
+                self.noop_error = not self.noop_error
+                self.Print("NOOP is now %s" % ["a warning", "an error"][int(self.noop_error)])
                 return True
             elif words[0] == "%pc":
                 self.cycle = 0
@@ -1415,8 +1507,9 @@ class LC3(object):
             ok = False
             try:
                 self.assemble(text)
-                self.dump()
-                self.dump_registers()
+                self.Print("Assembled! Use %dis or %dump to examine; use %exe to run.")
+                #self.dump()
+                #self.dump_registers()
                 ok = True
             except Exception as exc:
                 if self.get_pc() - 1 in self.source:
