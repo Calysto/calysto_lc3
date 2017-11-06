@@ -695,7 +695,10 @@ class LC3(object):
                 word = word.rstrip(',')
                 
                 if word in self.regs:
-                    t = self.regs[word] << reg_pos[rc]
+                    if found == "JMP":
+                        t = self.regs[word] << 6
+                    else:
+                        t = self.regs[word] << reg_pos[rc]
                     r |= t
                     rc += 1
                 else:
@@ -1007,12 +1010,13 @@ class LC3(object):
         ### No prompt for input:
         if len(self.char_buffer) == 0:
             data = self.kernel.raw_input()
+            data = data.replace("\\n", "\n")
             if len(data) == 0:
-                self.char_buffer = [10] # Carriage Return
+                self.char_buffer = [0] # end of string
             elif len(data) == 1:
-                self.char_buffer = [ord(char) for char in data]
+                self.char_buffer = [ord(char) for char in data] # single char mode
             else:
-                self.char_buffer = [ord(char) for char in data] + [10]
+                self.char_buffer = [ord(char) for char in data] + [0]
         return self.char_buffer.pop(0)
 
     def TRAP(self, instruction):
@@ -1467,6 +1471,7 @@ class LC3(object):
                     # if .orig in code, then run, otherwise just assemble:
                     self.debug = False
                     if words[0] == "%exe":
+                        self.char_buffer = []
                         self.cycle = 0
                         self.instruction_count = 0
                         self.set_pc(self.orig)
