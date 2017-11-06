@@ -1005,23 +1005,22 @@ class LC3(object):
 
     def getc(self):
         ### No prompt for input:
-        data = self.kernel.raw_input()
-        if data:
-            if len(data) > 1:
-                self.char_buffer += [ord(char) for char in data[1:]]
-            return ord(data[0])
-        else:
-            return 10 # Carriage Return
+        if len(self.char_buffer) == 0:
+            data = self.kernel.raw_input()
+            if len(data) == 0:
+                self.char_buffer = [10] # Carriage Return
+            elif len(data) == 1:
+                self.char_buffer = [ord(char) for char in data]
+            else:
+                self.char_buffer = [ord(char) for char in data] + [10]
+        return self.char_buffer.pop(0)
 
     def TRAP(self, instruction):
         vector = instruction & 0b0000000011111111
         self.set_register(7, self.get_pc())
         self.set_pc(self.get_memory(vector))
         if vector == 0x20:
-            if self.char_buffer:
-                self.set_memory(0xFE02, self.char_buffer.pop(0))
-            else:
-                self.set_memory(0xFE02, self.getc())
+            self.set_memory(0xFE02, self.getc())
         elif vector == 0x21:
             pass
         elif vector == 0x22: # PUTS
